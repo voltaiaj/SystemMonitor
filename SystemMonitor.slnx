@@ -1,0 +1,12 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="SystemMonitor/SystemMonitor.vcxproj">
+    <Deploy />
+  </Project>
+  <Project Path="SystemMonitorClient/SystemMonitorClient.vcxproj" Id="000f8e30-d6f4-4c8b-bc3e-7973f1e70370">
+    <Platform Project="x64" />
+  </Project>
+</Solution>
