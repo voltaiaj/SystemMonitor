@@ -5,7 +5,7 @@
 
 #define MAX_EVENTS 0x1024
 
-KMUTEX g_Mutex;
+FAST_MUTEX g_Mutex;
 
 typedef struct _Globals
 {	
@@ -101,7 +101,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	InitializeListHead(&g_Globals.ItemsHead);
 	g_Globals.ItemCount = 0;
 
-	KeInitializeMutex(&g_Mutex, 0);
+	ExInitializeFastMutex(&g_Mutex);
 
 	return STATUS_SUCCESS;
 }
@@ -266,7 +266,7 @@ void PushToEventQueue(MonitorEventFull* event)
 	InsertTailList(&g_Globals.ItemsHead, &event->ListEntry);
 	g_Globals.ItemCount++;
 	
-	KeReleaseMutex(&g_Mutex, FALSE);
+	ExReleaseFastMutex(&g_Mutex);
 }
 
 MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
@@ -309,6 +309,6 @@ MonitorEvent* PopFromEventQueue()
 		ExFreePoolWithTag(fullEvent, 'evnt');
 		g_Globals.ItemCount--;
 	}
-	KeReleaseMutex(&g_Mutex, FALSE);
+	ExReleaseFastMutex(&g_Mutex);
 	return event;
 }
