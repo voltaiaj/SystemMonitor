@@ -14,6 +14,7 @@ typedef struct _Globals
 } Globals;
 
 Globals g_Globals;
+PLARGE_INTEGER cookie;
 
 LARGE_INTEGER GetCurrentTime()
 {
@@ -32,6 +33,7 @@ typedef struct _MonitorEventFull
 		ProcessExitedInfo ProcessExited;
 		ThreadCreatedInfo ThreadCreated;
 		ThreadExitedInfo ThreadExited;
+		RegistrySetValueInfo RegistrySetValue;
 	} Data;
 } MonitorEventFull;
 
@@ -42,6 +44,7 @@ void ProcessNotifyCallback(PEPROCESS, HANDLE, PPS_CREATE_NOTIFY_INFO);
 void ThreadNotifyCallback(HANDLE, HANDLE, BOOLEAN);
 void PushToEventQueue(MonitorEventFull*);
 MonitorEvent* PopFromEventQueue();
+NTSTATUS OnRegistryNotify(PVOID, PVOID, PVOID);
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -102,6 +105,10 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	g_Globals.ItemCount = 0;
 
 	ExInitializeFastMutex(&g_Mutex);
+
+	UNICODE_STRING altitude;
+	RtlInitUnicodeString(&altitude, L"12345.6789");
+	status = CmRegisterCallbackEx(OnRegistryNotify, &altitude, DriverObject, NULL, cookie, NULL);
 
 	return STATUS_SUCCESS;
 }
@@ -311,4 +318,56 @@ MonitorEvent* PopFromEventQueue()
 	}
 	ExReleaseFastMutex(&g_Mutex);
 	return event;
+}
+
+NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument2)
+{
+	UNREFERENCED_PARAMETER(CallbackContext);
+	KdPrint((DRIVER_PREFIX "OnRegistryNotify called\n"));
+	// Handle registry notification here
+	switch ((REG_NOTIFY_CLASS)(ULONG_PTR)Argument1) {
+	case RegNtPostSetValueKey:
+		KdPrint((DRIVER_PREFIX "RegNtPostSetValueKey notification\n"));
+		REG_POST_OPERATION_INFORMATION* args = (REG_POST_OPERATION_INFORMATION*)Argument2;
+		if (args && args->Status == STATUS_SUCCESS) {
+			KdPrint((DRIVER_PREFIX "Registry value set successfully\n"));
+			static const WCHAR machineKeyPath[] = L"\\Registry\\Machine";
+			PUNICODE_STRING name;
+			NTSTATUS status = CmCallbackGetKeyObjectIDEx(cookie, args->Object, NULL, &name, 0);
+			if (NT_SUCCESS(status)) {
+				KdPrint((DRIVER_PREFIX "Key Object ID: %wZ\n", name));
+				if (wcsncmp(name->Buffer, machineKeyPath, ARRAYSIZE(machineKeyPath) - 1) == 0) {
+					KdPrint((DRIVER_PREFIX "Registry value set under HKEY_LOCAL_MACHINE\n"));
+					REG_SET_VALUE_KEY_INFORMATION* preInfo = (REG_SET_VALUE_KEY_INFORMATION*)args->PreInformation;
+					USHORT size = sizeof(RegistrySetValueInfo);
+					USHORT keyNameLen = name->Length + sizeof(WCHAR);
+					USHORT valueNameLen = preInfo->ValueName->Length + sizeof(WCHAR);
+					USHORT valueSize = (USHORT)min(256, preInfo->DataSize);
+					size += keyNameLen + valueNameLen + valueSize;
+					MonitorEventFull* info = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'evnt');
+					if (info) {
+						info->Data.RegistrySetValue.ProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+						info->Data.RegistrySetValue.ThreadId = (ULONG)(ULONG_PTR)PsGetCurrentThreadId();
+						info->Data.RegistrySetValue.KeyNameOffset = sizeof(RegistrySetValueInfo);
+						info->Data.RegistrySetValue.ValueNameOffset = info->Data.RegistrySetValue.KeyNameOffset + keyNameLen;
+						info->Data.RegistrySetValue.DataType = RegistrySetValue;
+						info->Data.RegistrySetValue.DataSize = preInfo->DataSize;
+						info->Data.RegistrySetValue.DataOffset = info->Data.RegistrySetValue.ValueNameOffset + valueNameLen;
+						info->Data.RegistrySetValue.ProvidedDataSize = valueSize;
+					}
+				}
+				else {
+					KdPrint((DRIVER_PREFIX "Registry value set under a different key: %wZ\n", name));
+				}
+			}
+			else {
+				KdPrint((DRIVER_PREFIX "Failed to get Key Object ID\n"));
+			}
+		}
+		else {
+			KdPrint((DRIVER_PREFIX "Registry value set failed or args is NULL\n"));
+		}
+		break;
+	}
+	return STATUS_SUCCESS;
 }

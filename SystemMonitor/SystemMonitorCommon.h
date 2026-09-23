@@ -40,7 +40,8 @@ typedef enum _MonitorEventType
 	ProcessCreated,
 	ProcessExited,
 	ThreadCreated,
-	ThreadExited
+	ThreadExited,
+	RegistrySetValue
 } MonitorEventType;
 
 typedef struct _MonitorEvent
@@ -54,3 +55,15 @@ typedef struct _MonitorEvent
 		ThreadExitedInfo ThreadExited;
 	} Data;
 } MonitorEvent;
+
+typedef struct _RegistrySetValueInfo {
+
+	ULONG ProcessId;
+	ULONG ThreadId;
+	USHORT KeyNameOffset;
+	USHORT ValueNameOffset;
+	ULONG DataType;
+	ULONG DataSize;
+	USHORT DataOffset;
+	USHORT ProvidedDataSize;
+} RegistrySetValueInfo;
