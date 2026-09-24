@@ -57,7 +57,8 @@ typedef struct _MonitorEvent
 } MonitorEvent;
 
 typedef struct _RegistrySetValueInfo {
-
+	ULONGLONG TIME;
+	USHORT Size;
 	ULONG ProcessId;
 	ULONG ThreadId;
 	USHORT KeyNameOffset;

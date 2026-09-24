@@ -346,14 +346,24 @@ NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 					size += keyNameLen + valueNameLen + valueSize;
 					MonitorEventFull* info = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'evnt');
 					if (info) {
+						KeQuerySystemTimePrecise(&info->Data.RegistrySetValue.TIME);
+						info->EventType = RegistrySetValue;
+						info->Data.RegistrySetValue.Size = size;
+						info->Data.RegistrySetValue.DataType = preInfo->Type;
 						info->Data.RegistrySetValue.ProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
 						info->Data.RegistrySetValue.ThreadId = (ULONG)(ULONG_PTR)PsGetCurrentThreadId();
-						info->Data.RegistrySetValue.KeyNameOffset = sizeof(RegistrySetValueInfo);
-						info->Data.RegistrySetValue.ValueNameOffset = info->Data.RegistrySetValue.KeyNameOffset + keyNameLen;
-						info->Data.RegistrySetValue.DataType = RegistrySetValue;
-						info->Data.RegistrySetValue.DataSize = preInfo->DataSize;
-						info->Data.RegistrySetValue.DataOffset = info->Data.RegistrySetValue.ValueNameOffset + valueNameLen;
 						info->Data.RegistrySetValue.ProvidedDataSize = valueSize;
+						info->Data.RegistrySetValue.DataSize = preInfo->DataSize;
+
+						USHORT offset = sizeof(RegistrySetValueInfo);
+						info->Data.RegistrySetValue.KeyNameOffset = offset;
+						wcsncpy((PWSTR)((PUCHAR)info + offset), name->Buffer, keyNameLen / sizeof(WCHAR));
+						((PWSTR)((PUCHAR)info + offset))[keyNameLen / sizeof(WCHAR) - 1] = L'\0';
+						info->Data.RegistrySetValue.ValueNameOffset = info->Data.RegistrySetValue.KeyNameOffset + keyNameLen;
+						
+						
+						info->Data.RegistrySetValue.DataOffset = info->Data.RegistrySetValue.ValueNameOffset + valueNameLen;
+						
 					}
 				}
 				else {
