@@ -346,7 +346,7 @@ NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 					size += keyNameLen + valueNameLen + valueSize;
 					MonitorEventFull* info = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'evnt');
 					if (info) {
-						KeQuerySystemTimePrecise(&info->Data.RegistrySetValue.TIME);
+						info->Data.RegistrySetValue.TIME = GetCurrentTime().QuadPart;
 						info->EventType = RegistrySetValue;
 						info->Data.RegistrySetValue.Size = size;
 						info->Data.RegistrySetValue.DataType = preInfo->Type;
@@ -357,18 +357,20 @@ NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 
 						USHORT offset = sizeof(RegistrySetValueInfo);
 						info->Data.RegistrySetValue.KeyNameOffset = offset;
-						wcsncpy((PWSTR)((PUCHAR)info + offset), name->Buffer, keyNameLen / sizeof(WCHAR));
-						((PWSTR)((PUCHAR)info + offset))[keyNameLen / sizeof(WCHAR) - 1] = L'\0';
-						info->Data.RegistrySetValue.ValueNameOffset = info->Data.RegistrySetValue.KeyNameOffset + keyNameLen;
-						
-						
-						info->Data.RegistrySetValue.DataOffset = info->Data.RegistrySetValue.ValueNameOffset + valueNameLen;
-						
+						wcsncpy_s((PWSTR)((PUCHAR)info + offset), keyNameLen / sizeof(WCHAR), name->Buffer, name->Length / sizeof(WCHAR));
+						offset += keyNameLen;
+						info->Data.RegistrySetValue.ValueNameOffset = offset;
+						wcsncpy_s((PWSTR)((PUCHAR)info + offset), valueNameLen / sizeof(WCHAR), preInfo->ValueName->Buffer, preInfo->ValueName->Length / sizeof(WCHAR));
+						offset += valueNameLen;
+						info->Data.RegistrySetValue.DataOffset = offset;
+						memcpy((PUCHAR)info + offset, preInfo->Data, valueSize);
+						PushToEventQueue(info);
 					}
 				}
 				else {
 					KdPrint((DRIVER_PREFIX "Registry value set under a different key: %wZ\n", name));
 				}
+				CmCallbackReleaseKeyObjectIDEx(name);
 			}
 			else {
 				KdPrint((DRIVER_PREFIX "Failed to get Key Object ID\n"));

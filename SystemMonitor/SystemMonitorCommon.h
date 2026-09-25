@@ -35,6 +35,19 @@ typedef struct _ThreadExitedInfo
 	ULONG ExitCode;
 } ThreadExitedInfo;
 
+typedef struct _RegistrySetValueInfo {
+	ULONGLONG TIME;
+	USHORT Size;
+	ULONG ProcessId;
+	ULONG ThreadId;
+	USHORT KeyNameOffset;
+	USHORT ValueNameOffset;
+	ULONG DataType;
+	ULONG DataSize;
+	USHORT DataOffset;
+	USHORT ProvidedDataSize;
+} RegistrySetValueInfo;
+
 typedef enum _MonitorEventType
 {
 	ProcessCreated,
@@ -53,18 +66,6 @@ typedef struct _MonitorEvent
 		ProcessExitedInfo ProcessExited;
 		ThreadCreatedInfo ThreadCreated;
 		ThreadExitedInfo ThreadExited;
+		RegistrySetValueInfo RegistrySetValue;
 	} Data;
 } MonitorEvent;
-
-typedef struct _RegistrySetValueInfo {
-	ULONGLONG TIME;
-	USHORT Size;
-	ULONG ProcessId;
-	ULONG ThreadId;
-	USHORT KeyNameOffset;
-	USHORT ValueNameOffset;
-	ULONG DataType;
-	ULONG DataSize;
-	USHORT DataOffset;
-	USHORT ProvidedDataSize;
-} RegistrySetValueInfo;

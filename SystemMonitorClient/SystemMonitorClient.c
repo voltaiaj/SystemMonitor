@@ -52,6 +52,19 @@ int main()
 				event->Data.ThreadExited.ExitCode,
 				event->Data.ThreadExited.ExitTime);
 			break;
+		case RegistrySetValue:
+			wprintf(L"Registry Set Value: Key=%.*ls, Value=%.*ls, Data Type=%lu, Data Size=%lu, Provided Data Size=%lu, Process ID=%lu, Thread ID=%lu, Time=%llu\n",
+				(event->Data.RegistrySetValue.KeyNameOffset > 0) ? (int)(event->Data.RegistrySetValue.KeyNameOffset / sizeof(WCHAR)) : 0,
+				(event->Data.RegistrySetValue.KeyNameOffset > 0) ? (PWSTR)((PUCHAR)event + event->Data.RegistrySetValue.KeyNameOffset) : L"",
+				(event->Data.RegistrySetValue.ValueNameOffset > 0) ? (int)(event->Data.RegistrySetValue.ValueNameOffset / sizeof(WCHAR)) : 0,
+				(event->Data.RegistrySetValue.ValueNameOffset > 0) ? (PWSTR)((PUCHAR)event + event->Data.RegistrySetValue.ValueNameOffset) : L"",
+				event->Data.RegistrySetValue.DataType,
+				event->Data.RegistrySetValue.DataSize,
+				event->Data.RegistrySetValue.ProvidedDataSize,
+				event->Data.RegistrySetValue.ProcessId,
+				event->Data.RegistrySetValue.ThreadId,
+				event->Data.RegistrySetValue.TIME);
+			break;
 		default:
 			wprintf(L"Unknown event type: %d\n", event->EventType);
 			break;
