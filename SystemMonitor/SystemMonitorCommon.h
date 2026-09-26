@@ -59,7 +59,9 @@ typedef enum _MonitorEventType
 
 typedef struct _MonitorEvent
 {
+	USHORT Size;
 	MonitorEventType EventType;
+	ULONGLONG TimeStamp;
 	union
 	{
 		ProcessCreatedInfo ProcessCreated;
