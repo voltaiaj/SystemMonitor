@@ -14,7 +14,8 @@ typedef struct _Globals
 } Globals;
 
 Globals g_Globals;
-PLARGE_INTEGER cookie;
+static LARGE_INTEGER cookie;
+static BOOLEAN g_RegRegistered = FALSE;
 
 LARGE_INTEGER GetCurrentTime()
 {
@@ -50,11 +51,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
 	UNREFERENCED_PARAMETER(RegistryPath);
 	KdPrint((DRIVER_PREFIX "DriverEntry called\n"));
-	// Set up the driver unload routine
-	DriverObject->DriverUnload = DriverUnload;
-	DriverObject->MajorFunction[IRP_MJ_CREATE] = SystemMonitorCreateClose;
-	DriverObject->MajorFunction[IRP_MJ_CLOSE] = SystemMonitorCreateClose;
-	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = SystemMonitorDeviceControl;
+	
 	// Additional initialization code can go here
 
 	UNICODE_STRING deviceName = RTL_CONSTANT_STRING(L"\\Device\\SystemMonitor");
@@ -84,6 +81,11 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
 	deviceObject->Flags |= DO_BUFFERED_IO;
 
+	InitializeListHead(&g_Globals.ItemsHead);
+	g_Globals.ItemCount = 0;
+
+	ExInitializeFastMutex(&g_Mutex);
+
 	// Register process and thread notify callbacks
 	status = PsSetCreateProcessNotifyRoutineEx(ProcessNotifyCallback, FALSE);
 	if (!NT_SUCCESS(status)) {
@@ -101,14 +103,15 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 		return status;
 	}
 
-	InitializeListHead(&g_Globals.ItemsHead);
-	g_Globals.ItemCount = 0;
-
-	ExInitializeFastMutex(&g_Mutex);
-
 	UNICODE_STRING altitude;
 	RtlInitUnicodeString(&altitude, L"12345.6789");
-	status = CmRegisterCallbackEx(OnRegistryNotify, &altitude, DriverObject, NULL, cookie, NULL);
+	status = CmRegisterCallbackEx(OnRegistryNotify, &altitude, DriverObject, NULL, &cookie, NULL);
+
+	// Set up the driver unload routine
+	DriverObject->DriverUnload = DriverUnload;
+	DriverObject->MajorFunction[IRP_MJ_CREATE] = SystemMonitorCreateClose;
+	DriverObject->MajorFunction[IRP_MJ_CLOSE] = SystemMonitorCreateClose;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = SystemMonitorDeviceControl;
 
 	return STATUS_SUCCESS;
 }
@@ -116,6 +119,10 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 void DriverUnload(PDRIVER_OBJECT DriverObject)
 {
 	KdPrint((DRIVER_PREFIX "DriverUnload called\n"));
+
+	if (g_RegRegistered) {
+		CmUnRegisterCallback(cookie);
+	}
 
 	PsRemoveCreateThreadNotifyRoutine(ThreadNotifyCallback);
 	PsSetCreateProcessNotifyRoutineEx(ProcessNotifyCallback, TRUE);
@@ -260,7 +267,7 @@ void ThreadNotifyCallback(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN Create)
 
 void PushToEventQueue(MonitorEventFull* event)
 {
-	KeWaitForSingleObject(&g_Mutex, Executive, KernelMode, FALSE, NULL);
+	ExAcquireFastMutex(&g_Mutex);
 
 	if (g_Globals.ItemCount >= MAX_EVENTS) {
 		KdPrint((DRIVER_PREFIX "Event queue is full. Making room by removing oldest event.\n"));
@@ -307,7 +314,7 @@ MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
 
 MonitorEvent* PopFromEventQueue()
 {
-	KeWaitForSingleObject(&g_Mutex, Executive, KernelMode, FALSE, NULL);
+	ExAcquireFastMutex(&g_Mutex);
 	MonitorEvent* event = NULL;
 	if (!IsListEmpty(&g_Globals.ItemsHead)) {
 		PLIST_ENTRY entry = RemoveHeadList(&g_Globals.ItemsHead);
@@ -333,7 +340,7 @@ NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 			KdPrint((DRIVER_PREFIX "Registry value set successfully\n"));
 			static const WCHAR machineKeyPath[] = L"\\Registry\\Machine";
 			PUNICODE_STRING name;
-			NTSTATUS status = CmCallbackGetKeyObjectIDEx(cookie, args->Object, NULL, &name, 0);
+			NTSTATUS status = CmCallbackGetKeyObjectIDEx(&cookie, args->Object, NULL, &name, 0);
 			if (NT_SUCCESS(status)) {
 				KdPrint((DRIVER_PREFIX "Key Object ID: %wZ\n", name));
 				if (wcsncmp(name->Buffer, machineKeyPath, ARRAYSIZE(machineKeyPath) - 1) == 0) {
