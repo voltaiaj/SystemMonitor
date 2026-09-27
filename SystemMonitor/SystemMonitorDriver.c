@@ -167,7 +167,7 @@ NTSTATUS SystemMonitorDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		KdPrint((DRIVER_PREFIX "IOCTL_GET_EVENTS called\n"));
 		ULONG outputBufferLength = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
 		
-		MonitorEvent* event = PopFromEventQueue();
+		MonitorEvent* event;
 		while (outputBufferLength >= sizeof(MonitorEvent)) {
 			event = PopFromEventQueue();
 			if (!event) {
@@ -309,6 +309,8 @@ MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
 	switch (fullEvent->EventType) {
 	case ProcessCreated:
 		event->Data.ProcessCreated = fullEvent->Data.ProcessCreated;
+		SIZE_T cmdBytes = fullEvent->Data.ProcessCreated.CommandLineLength * sizeof(WCHAR);
+		RtlCopyMemory(event->Data.ProcessCreated.CommandLine, fullEvent->Data.ProcessCreated.CommandLine, cmdBytes + sizeof(WCHAR));
 		break;
 	case ProcessExited:
 		event->Data.ProcessExited = fullEvent->Data.ProcessExited;

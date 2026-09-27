@@ -10,7 +10,7 @@ typedef struct _ProcessCreatedInfo
 	ULONG ProcessId;
 	ULONG ParentProcessId;
 	ULONG CommandLineLength;
-	WCHAR CommandLine[MAX_COMMAND_LINE_LENGTH];
+	WCHAR CommandLine[1];
 } ProcessCreatedInfo;
 
 typedef struct _ProcessExitedInfo
