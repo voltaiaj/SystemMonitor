@@ -28,6 +28,8 @@ typedef struct _MonitorEventFull
 {
 	LIST_ENTRY ListEntry;
 	MonitorEventType EventType;
+	ULONGLONG TimeStamp;
+	USHORT Size;
 	union
 	{
 		ProcessCreatedInfo ProcessCreated;
@@ -106,6 +108,9 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	UNICODE_STRING altitude;
 	RtlInitUnicodeString(&altitude, L"12345.6789");
 	status = CmRegisterCallbackEx(OnRegistryNotify, &altitude, DriverObject, NULL, &cookie, NULL);
+	if (NT_SUCCESS(status)) {
+		g_RegRegistered = TRUE;
+	}
 
 	// Set up the driver unload routine
 	DriverObject->DriverUnload = DriverUnload;
@@ -122,6 +127,7 @@ void DriverUnload(PDRIVER_OBJECT DriverObject)
 
 	if (g_RegRegistered) {
 		CmUnRegisterCallback(cookie);
+		g_RegRegistered = FALSE;
 	}
 
 	PsRemoveCreateThreadNotifyRoutine(ThreadNotifyCallback);
@@ -161,15 +167,16 @@ NTSTATUS SystemMonitorDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		KdPrint((DRIVER_PREFIX "IOCTL_GET_EVENTS called\n"));
 		ULONG outputBufferLength = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
 		
+		MonitorEvent* event = PopFromEventQueue();
 		while (outputBufferLength >= sizeof(MonitorEvent)) {
-			MonitorEvent* event = PopFromEventQueue();
+			event = PopFromEventQueue();
 			if (!event) {
 				KdPrint((DRIVER_PREFIX "No more events to return\n"));
 				break;
 			}
-			RtlCopyMemory((PUCHAR)Irp->AssociatedIrp.SystemBuffer + written, event, sizeof(MonitorEvent));
-			written += sizeof(MonitorEvent);
-			outputBufferLength -= sizeof(MonitorEvent);
+			RtlCopyMemory((PUCHAR)Irp->AssociatedIrp.SystemBuffer + written, event, event->Size);
+			written += event->Size;
+			outputBufferLength -= event->Size;
 			ExFreePool2(event, 'evnt', NULL, 0);
 		}
 		break;
@@ -193,9 +200,9 @@ void ProcessNotifyCallback(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIF
 {
 	UNREFERENCED_PARAMETER(Process);
 	KdPrint((DRIVER_PREFIX "ProcessNotifyCallback called\n"));
-	SIZE_T extraSize = 0;
+	USHORT extraSize = 0;
 	if (CreateInfo && CreateInfo->CommandLine) {
-		extraSize = CreateInfo->CommandLine->Length;
+		extraSize = (USHORT)CreateInfo->CommandLine->Length;
 	}
 	
 	MonitorEventFull* event = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEventFull) + extraSize, 'evnt');
@@ -207,6 +214,8 @@ void ProcessNotifyCallback(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIF
 	if (CreateInfo) {
 		KdPrint((DRIVER_PREFIX "Process created. PID=%p\n", ProcessId));	
 		event->EventType = ProcessCreated;
+		event->TimeStamp = GetCurrentTime().QuadPart;
+		event->Size = sizeof(MonitorEventFull) + extraSize;
 		event->Data.ProcessCreated.CreatedTime = GetCurrentTime().QuadPart;
 		event->Data.ProcessCreated.ProcessId = (ULONG)(ULONG_PTR)ProcessId;
 		event->Data.ProcessCreated.ParentProcessId = (ULONG)(ULONG_PTR)CreateInfo->ParentProcessId;
@@ -249,6 +258,8 @@ void ThreadNotifyCallback(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN Create)
 	if (Create) {
 		KdPrint((DRIVER_PREFIX "Thread created. TID=%p\n", ThreadId));
 		event->EventType = ThreadCreated;
+		event->TimeStamp = GetCurrentTime().QuadPart;
+		event->Size = sizeof(MonitorEventFull);
 		event->Data.ThreadCreated.CreatedTime = GetCurrentTime().QuadPart;
 		event->Data.ThreadCreated.ThreadId = (ULONG)(ULONG_PTR)ThreadId;
 		event->Data.ThreadCreated.ProcessId = (ULONG)(ULONG_PTR)ProcessId;
@@ -257,6 +268,8 @@ void ThreadNotifyCallback(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN Create)
 	else {
 		KdPrint((DRIVER_PREFIX "Thread exited. TID=%p\n", ThreadId));
 		event->EventType = ThreadExited;
+		event->TimeStamp = GetCurrentTime().QuadPart;
+		event->Size = sizeof(MonitorEventFull);
 		event->Data.ThreadExited.ExitTime = GetCurrentTime().QuadPart;
 		event->Data.ThreadExited.ThreadId = (ULONG)(ULONG_PTR)ThreadId;
 		event->Data.ThreadExited.ProcessId = (ULONG)(ULONG_PTR)ProcessId;
@@ -285,12 +298,14 @@ void PushToEventQueue(MonitorEventFull* event)
 
 MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
 {
-	MonitorEvent* event = (MonitorEvent*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEvent), 'evnt');
+	MonitorEvent* event = (MonitorEvent*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEvent)+ fullEvent->Size - sizeof(MonitorEventFull), 'evnt');
 	if (!event) {
 		KdPrint((DRIVER_PREFIX "Failed to allocate memory for MonitorEvent\n"));
 		return NULL;
 	}
 	event->EventType = fullEvent->EventType;
+	event->TimeStamp = fullEvent->TimeStamp;
+	event->Size = fullEvent->Size;
 	switch (fullEvent->EventType) {
 	case ProcessCreated:
 		event->Data.ProcessCreated = fullEvent->Data.ProcessCreated;

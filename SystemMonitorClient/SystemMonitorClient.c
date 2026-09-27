@@ -42,16 +42,15 @@ void DisplayTime(ULONGLONG time)
 	ft.dwLowDateTime = uli.LowPart;
 	ft.dwHighDateTime = uli.HighPart;
 	FileTimeToSystemTime(&ft, &st);
-	wprintf(L"%02d/%02d/%04d %02d:%02d:%02d.%03d",
+	wprintf(L"%02d/%02d/%04d %02d:%02d:%02d.%03d ",
 		st.wMonth, st.wDay, st.wYear,
 		st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 }
 
 void DisplayData(const BYTE* buffer, DWORD size)
 {
-
 	while (size > 0) {
-		const MonitorEvent* event = (const MonitorEvent*)buffer;
+		MonitorEvent* event = (MonitorEvent*)buffer;
 		DisplayTime(event->TimeStamp);
 		switch (event->EventType) {
 			case ProcessCreated:
