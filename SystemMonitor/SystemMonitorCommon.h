@@ -36,12 +36,12 @@ typedef struct _ThreadExitedInfo
 } ThreadExitedInfo;
 
 typedef struct _RegistrySetValueInfo {
-	ULONGLONG TIME;
-	USHORT Size;
 	ULONG ProcessId;
 	ULONG ThreadId;
 	USHORT KeyNameOffset;
+	USHORT KeyNameLength;
 	USHORT ValueNameOffset;
+	USHORT ValueNameLength;
 	ULONG DataType;
 	ULONG DataSize;
 	USHORT DataOffset;

@@ -174,9 +174,10 @@ NTSTATUS SystemMonitorDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 				KdPrint((DRIVER_PREFIX "No more events to return\n"));
 				break;
 			}
-			RtlCopyMemory((PUCHAR)Irp->AssociatedIrp.SystemBuffer + written, event, event->Size);
-			written += event->Size;
-			outputBufferLength -= event->Size;
+			USHORT eventSize = (event->Size < outputBufferLength) ? event->Size : (USHORT)outputBufferLength;
+			RtlCopyMemory((PUCHAR)Irp->AssociatedIrp.SystemBuffer + written, event, eventSize);
+			written += eventSize;
+			outputBufferLength -= eventSize;
 			ExFreePool2(event, 'evnt', NULL, 0);
 		}
 		break;
@@ -237,6 +238,8 @@ void ProcessNotifyCallback(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIF
 	else {
 		KdPrint((DRIVER_PREFIX "Process exited. PID=%p\n", ProcessId));
 		event->EventType = ProcessExited;
+		event->TimeStamp = GetCurrentTime().QuadPart;
+		event->Size = sizeof(MonitorEventFull);
 		event->Data.ProcessExited.ExitTime = GetCurrentTime().QuadPart;
 		event->Data.ProcessExited.ProcessId = (ULONG)(ULONG_PTR)ProcessId;
 		event->Data.ProcessExited.ExitCode = (ULONG)(ULONG_PTR)PsGetProcessExitStatus(Process);
@@ -298,7 +301,7 @@ void PushToEventQueue(MonitorEventFull* event)
 
 MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
 {
-	MonitorEvent* event = (MonitorEvent*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEvent)+ fullEvent->Size - sizeof(MonitorEventFull), 'evnt');
+	MonitorEvent* event = (MonitorEvent*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEvent) + fullEvent->Size - sizeof(MonitorEventFull), 'evnt');
 	if (!event) {
 		KdPrint((DRIVER_PREFIX "Failed to allocate memory for MonitorEvent\n"));
 		return NULL;
@@ -320,6 +323,16 @@ MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
 		break;
 	case ThreadExited:
 		event->Data.ThreadExited = fullEvent->Data.ThreadExited;
+		break;
+	case RegistrySetValue:
+		event->Data.RegistrySetValue = fullEvent->Data.RegistrySetValue;
+		
+		USHORT offset = sizeof(MonitorEvent);
+		RtlCopyMemory((PUCHAR)event + offset, (PUCHAR)fullEvent + fullEvent->Data.RegistrySetValue.KeyNameOffset, fullEvent->Data.RegistrySetValue.KeyNameLength);
+		offset += fullEvent->Data.RegistrySetValue.KeyNameLength;
+		RtlCopyMemory((PUCHAR)event + offset, (PUCHAR)fullEvent + fullEvent->Data.RegistrySetValue.ValueNameOffset, fullEvent->Data.RegistrySetValue.ValueNameLength);
+		offset += fullEvent->Data.RegistrySetValue.ValueNameLength;
+		RtlCopyMemory((PUCHAR)event + offset, (PUCHAR)fullEvent + fullEvent->Data.RegistrySetValue.DataOffset, fullEvent->Data.RegistrySetValue.ProvidedDataSize);
 		break;
 	default:
 		KdPrint((DRIVER_PREFIX "Unknown event type: %d\n", fullEvent->EventType));
@@ -355,7 +368,7 @@ NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 		REG_POST_OPERATION_INFORMATION* args = (REG_POST_OPERATION_INFORMATION*)Argument2;
 		if (args && args->Status == STATUS_SUCCESS) {
 			KdPrint((DRIVER_PREFIX "Registry value set successfully\n"));
-			static const WCHAR machineKeyPath[] = L"\\Registry\\Machine";
+			static const WCHAR machineKeyPath[] = L"\\REGISTRY\\MACHINE";
 			PUNICODE_STRING name;
 			NTSTATUS status = CmCallbackGetKeyObjectIDEx(&cookie, args->Object, NULL, &name, 0);
 			if (NT_SUCCESS(status)) {
@@ -363,23 +376,25 @@ NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 				if (wcsncmp(name->Buffer, machineKeyPath, ARRAYSIZE(machineKeyPath) - 1) == 0) {
 					KdPrint((DRIVER_PREFIX "Registry value set under HKEY_LOCAL_MACHINE\n"));
 					REG_SET_VALUE_KEY_INFORMATION* preInfo = (REG_SET_VALUE_KEY_INFORMATION*)args->PreInformation;
-					USHORT size = sizeof(RegistrySetValueInfo);
+					USHORT size = sizeof(MonitorEventFull);
 					USHORT keyNameLen = name->Length + sizeof(WCHAR);
 					USHORT valueNameLen = preInfo->ValueName->Length + sizeof(WCHAR);
 					USHORT valueSize = (USHORT)min(256, preInfo->DataSize);
 					size += keyNameLen + valueNameLen + valueSize;
 					MonitorEventFull* info = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'evnt');
 					if (info) {
-						info->Data.RegistrySetValue.TIME = GetCurrentTime().QuadPart;
+						info->TimeStamp = GetCurrentTime().QuadPart;
+						info->Size = size;
 						info->EventType = RegistrySetValue;
-						info->Data.RegistrySetValue.Size = size;
 						info->Data.RegistrySetValue.DataType = preInfo->Type;
 						info->Data.RegistrySetValue.ProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
 						info->Data.RegistrySetValue.ThreadId = (ULONG)(ULONG_PTR)PsGetCurrentThreadId();
 						info->Data.RegistrySetValue.ProvidedDataSize = valueSize;
 						info->Data.RegistrySetValue.DataSize = preInfo->DataSize;
+						info->Data.RegistrySetValue.KeyNameLength = keyNameLen;
+						info->Data.RegistrySetValue.ValueNameLength = valueNameLen;
 
-						USHORT offset = sizeof(RegistrySetValueInfo);
+						USHORT offset = sizeof(MonitorEventFull);
 						info->Data.RegistrySetValue.KeyNameOffset = offset;
 						wcsncpy_s((PWSTR)((PUCHAR)info + offset), keyNameLen / sizeof(WCHAR), name->Buffer, name->Length / sizeof(WCHAR));
 						offset += keyNameLen;
