@@ -2,6 +2,7 @@
 #include "SystemMonitorCommon.h"
 
 #define DRIVER_PREFIX "SystemMonitor: "
+#define DRIVER_TAG 'smnt'
 
 #define MAX_EVENTS 0x1024
 
@@ -136,7 +137,7 @@ void DriverUnload(PDRIVER_OBJECT DriverObject)
 	while (!IsListEmpty(&g_Globals.ItemsHead)) {
 		PLIST_ENTRY entry = RemoveHeadList(&g_Globals.ItemsHead);
 		MonitorEventFull* event = CONTAINING_RECORD(entry, MonitorEventFull, ListEntry);
-		ExFreePool2(event, 'evnt', NULL, 0);
+		ExFreePool2(event, DRIVER_TAG, NULL, 0);
 		g_Globals.ItemCount--;
 	}
 
@@ -178,7 +179,7 @@ NTSTATUS SystemMonitorDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 			RtlCopyMemory((PUCHAR)Irp->AssociatedIrp.SystemBuffer + written, event, eventSize);
 			written += eventSize;
 			outputBufferLength -= eventSize;
-			ExFreePool2(event, 'evnt', NULL, 0);
+			ExFreePool2(event, DRIVER_TAG, NULL, 0);
 		}
 		break;
 	}
@@ -252,7 +253,7 @@ void ThreadNotifyCallback(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN Create)
 	UNREFERENCED_PARAMETER(ProcessId);
 	KdPrint((DRIVER_PREFIX "ThreadNotifyCallback called\n"));
 
-	MonitorEventFull* event = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEventFull), 'evnt');
+	MonitorEventFull* event = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEventFull), DRIVER_TAG);
 	if (!event) {
 		KdPrint((DRIVER_PREFIX "Failed to allocate memory for Thread event\n"));
 		return;
@@ -289,7 +290,7 @@ void PushToEventQueue(MonitorEventFull* event)
 		KdPrint((DRIVER_PREFIX "Event queue is full. Making room by removing oldest event.\n"));
 		PLIST_ENTRY entry = RemoveHeadList(&g_Globals.ItemsHead);
 		MonitorEventFull* oldEvent = CONTAINING_RECORD(entry, MonitorEventFull, ListEntry);
-		ExFreePoolWithTag(oldEvent, 'evnt');
+		ExFreePoolWithTag(oldEvent, DRIVER_TAG);
 		g_Globals.ItemCount--;
 	}
 
@@ -336,7 +337,7 @@ MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
 		break;
 	default:
 		KdPrint((DRIVER_PREFIX "Unknown event type: %d\n", fullEvent->EventType));
-		ExFreePoolWithTag(event, 'evnt');
+		ExFreePoolWithTag(event, DRIVER_TAG);
 		return NULL;
 	}
 	return event;
@@ -350,7 +351,7 @@ MonitorEvent* PopFromEventQueue()
 		PLIST_ENTRY entry = RemoveHeadList(&g_Globals.ItemsHead);
 		MonitorEventFull* fullEvent = CONTAINING_RECORD(entry, MonitorEventFull, ListEntry);
 		event = ConvertMonitorEventFullToMonitorEvent(fullEvent);
-		ExFreePoolWithTag(fullEvent, 'evnt');
+		ExFreePoolWithTag(fullEvent, DRIVER_TAG);
 		g_Globals.ItemCount--;
 	}
 	ExReleaseFastMutex(&g_Mutex);
@@ -381,7 +382,7 @@ NTSTATUS OnRegistryNotify(PVOID CallbackContext, PVOID Argument1, PVOID Argument
 					USHORT valueNameLen = preInfo->ValueName->Length + sizeof(WCHAR);
 					USHORT valueSize = (USHORT)min(256, preInfo->DataSize);
 					size += keyNameLen + valueNameLen + valueSize;
-					MonitorEventFull* info = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, 'evnt');
+					MonitorEventFull* info = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, DRIVER_TAG);
 					if (info) {
 						info->TimeStamp = GetCurrentTime().QuadPart;
 						info->Size = size;
