@@ -207,7 +207,7 @@ void ProcessNotifyCallback(PEPROCESS Process, HANDLE ProcessId, PPS_CREATE_NOTIF
 		extraSize = (USHORT)CreateInfo->CommandLine->Length;
 	}
 	
-	MonitorEventFull* event = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEventFull) + extraSize, 'evnt');
+	MonitorEventFull* event = (MonitorEventFull*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEventFull) + extraSize, DRIVER_TAG);
 	if (!event) {
 		KdPrint((DRIVER_PREFIX "Failed to allocate memory for Process event\n"));
 		return;
@@ -302,7 +302,7 @@ void PushToEventQueue(MonitorEventFull* event)
 
 MonitorEvent* ConvertMonitorEventFullToMonitorEvent(MonitorEventFull* fullEvent)
 {
-	MonitorEvent* event = (MonitorEvent*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEvent) + fullEvent->Size - sizeof(MonitorEventFull), 'evnt');
+	MonitorEvent* event = (MonitorEvent*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MonitorEvent) + fullEvent->Size - sizeof(MonitorEventFull), DRIVER_TAG);
 	if (!event) {
 		KdPrint((DRIVER_PREFIX "Failed to allocate memory for MonitorEvent\n"));
 		return NULL;
